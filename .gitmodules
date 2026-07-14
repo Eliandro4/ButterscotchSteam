@@ -1,0 +1,3 @@
+[submodule "butterscotch"]
+	path = butterscotch
+	url = https://github.com/ButterscotchRunner/Butterscotch.git

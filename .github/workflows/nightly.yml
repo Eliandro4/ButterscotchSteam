@@ -1,0 +1,100 @@
+name: Nightly Build
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    outputs:
+      butterscotch_hash: ${{ steps.versions.outputs.butterscotch_hash }}
+      butterscotch_date: ${{ steps.versions.outputs.butterscotch_date }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Update submodule
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive --remote
+          git config --global --add safe.directory "*"
+
+      - name: Commit submodule update
+        if: github.event_name == 'schedule'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add butterscotch
+          if git diff --cached --quiet; then
+            echo "Submodule already up to date"
+          else
+            git commit -m "chore(deps): update butterscotch submodule to latest"
+            git push origin HEAD
+          fi
+
+      - name: Get versions
+        id: versions
+        run: |
+          echo "bscotch_version=$(cat version)" >> $GITHUB_OUTPUT
+          BUTTERSCOTCH_HASH=$(cd butterscotch && git rev-parse --short HEAD)
+          BUTTERSCOTCH_DATE=$(cd butterscotch && git log -1 --format=%cd --date=short)
+          echo "butterscotch_hash=$BUTTERSCOTCH_HASH" >> $GITHUB_OUTPUT
+          echo "butterscotch_date=$BUTTERSCOTCH_DATE" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gcc pkg-config libsdl2-dev libbz2-dev zip
+
+      - name: Build
+        run: bash build.sh
+
+      - name: Package extension
+        run: |
+          cd bscotch-build
+          zip -r ../bscotch-build.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bscotch-build
+          path: bscotch-build.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bscotch-build
+
+      - name: Delete existing nightly release
+        run: gh release delete nightly --cleanup-tag --yes || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: nightly
+          name: Continuous Release
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: bscotch-build.zip
+          body: |
+            Build of Butterscotch as a Steam compatibility tool.
+            **Butterscotch version:** ${{ needs.build.outputs.butterscotch_hash }} (${{ needs.build.outputs.butterscotch_date }})
