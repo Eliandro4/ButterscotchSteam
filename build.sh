@@ -10,8 +10,7 @@ cd "$BSCOTCH_DIR"
 
 echo "==> Configuring CMake..."
 cmake -B build -G Ninja \
-    -DPLATFORM=desktop \
-    -DDESKTOP_BACKEND=sdl2 \
+    -DBACKEND=sdl2 \
     -DCMAKE_BUILD_TYPE=Release
 
 echo "==> Running Ninja..."
